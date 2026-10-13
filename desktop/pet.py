@@ -85,6 +85,7 @@ DEFAULT_CONFIG_PATH = os.path.join(
 CELL_W, CELL_H = 192, 208
 
 SIZE_MIN, SIZE_MAX, SIZE_DEFAULT = 64, 224, 104
+LOOK_INTERVAL_MS = 120
 
 # 上游 @michengai/dsh-codex-pet 的内置宠物表（lib/index.js 的 BUILTINS）。
 # 显示名与顺序都照抄上游，保证与 DSH 页面里看到的对得上。
@@ -1024,6 +1025,7 @@ class PetWindow(Gtk.ApplicationWindow):
         self._heal_rounds = 10  # 启动后若干轮轮询里自愈 EWMH（见 _ensure_x11_state）
         self._config_mtime = self._stat_config_mtime()
         self.status_dialog = None  # 「工作状态」对话框（同一时刻最多一个）
+        self.bubble = None  # 会话状态气泡（同一时刻最多一个）
         self.start_hidden = bool(self.config.get("hidden", False))
 
         # 干活状态：网页版靠浏览器内存判定，独立进程改读会话事件文件（见 SessionWatcher）
@@ -1076,6 +1078,32 @@ class PetWindow(Gtk.ApplicationWindow):
             b"window.pet-status label, dialog.pet-status label {"
             b"  color: #e8e8ea;"
             b"}"
+            b"window.pet-bubble, window.pet-bubble.background {"
+            b"  background-color: #1c1c20;"
+            b"  background-image: none;"
+            b"  border: 2px solid #3a3a44;"
+            b"  border-radius: 0;"
+            b"  box-shadow: none;"
+            b"  padding: 0;"
+            b"}"
+            b"window.pet-bubble.pet-bubble-alert,"
+            b"window.pet-bubble.pet-bubble-alert.background {"
+            b"  border-color: #ffcc66;"
+            b"}"
+            b"window.pet-bubble label {"
+            b"  color: #e8e8ea;"
+            b"  font-family: \"DejaVu Sans Mono\", \"Noto Sans Mono CJK SC\", monospace;"
+            b"}"
+            b".pet-bubble-pose { min-width: 10px; }"
+            b".pet-bubble-running { background-color: #6cc0ff; }"
+            b".pet-bubble-waiting { background-color: #ffcc66; }"
+            b".pet-bubble-failed { background-color: #ff7b72; }"
+            b".pet-bubble-review { background-color: #7ee787; }"
+            b".pet-bubble-row { padding: 4px 8px; }"
+            b".pet-bubble-row.pet-bubble-clicked {"
+            b"  background-color: #3a3a44; background-image: none;"
+            b"}"
+            b".pet-bubble-question { color: #ffcc66; padding-left: 18px; }"
             b".pet-status-title { font-size: 15px; font-weight: bold; }"
             b".pet-status-dim { color: #a0a2a8; }"
             b".pet-status-pose { font-weight: bold; }"
@@ -1237,6 +1265,37 @@ class PetWindow(Gtk.ApplicationWindow):
         # 真正 map 时直接出现在该位置 —— 这正是构造期消除 (0,0) 闪烁所需的
         # 行为（move 本身不会把窗口显示出来）。
         self.move(self.pos_x, self.pos_y)
+        if self.bubble is not None:
+            self.bubble.reposition()
+
+    def _track_pointer(self):
+        """按屏幕坐标追踪全局指针，不受指针是否在宠物窗口内影响。"""
+        if not self.get_visible():
+            return GLib.SOURCE_CONTINUE
+        if (
+            self.sheet is None
+            or self.sheet.version != 2
+            or self.base_pose != "idle"
+            or self.action is not None
+            or self.dragging
+        ):
+            if self.look is not None:
+                self.look = None
+                self._render_frame()
+            return GLib.SOURCE_CONTINUE
+        try:
+            seat = Gdk.Display.get_default().get_default_seat()
+            _screen, px, py = seat.get_pointer().get_position()
+        except Exception:
+            return GLib.SOURCE_CONTINUE
+        fw, fh = self.frame_size
+        cx = self.pos_x + fw / 2
+        cy = self.pos_y + fh / 2
+        cell = look_cell(px - cx, py - cy)
+        if cell != self.look:
+            self.look = cell
+            self._render_frame()
+        return GLib.SOURCE_CONTINUE
 
     def _place_from_config(self):
         """按配置里的归一化 position（无则右下角）摆放。"""
@@ -1271,6 +1330,8 @@ class PetWindow(Gtk.ApplicationWindow):
             self.sheet.clear_cache()  # 尺寸变了，旧帧缓存全部作废
         self._render_frame()
         self._move(self.pos_x, self.pos_y)
+        if self.bubble is not None:
+            self.bubble.reposition()
 
     # ---------- 精灵图 ----------
 
@@ -1434,9 +1495,6 @@ class PetWindow(Gtk.ApplicationWindow):
         return False
 
     def _on_leave(self, _widget, _event):
-        if self.look is not None:
-            self.look = None
-            self._render_frame()
         return False
 
     def _popup_menu(self, event):
@@ -1520,6 +1578,8 @@ class PetWindow(Gtk.ApplicationWindow):
             self.present()
         else:
             self.hide()
+            if self.bubble is not None:
+                self.bubble.hide()
         return False
 
     def _resize_by(self, delta):
@@ -1563,6 +1623,8 @@ class PetWindow(Gtk.ApplicationWindow):
             self.start_hidden = bool(config.get("hidden"))
             if self.start_hidden:
                 self.hide()
+                if self.bubble is not None:
+                    self.bubble.hide()
             else:
                 self._move(self.pos_x, self.pos_y)
                 self.present()
@@ -1597,12 +1659,55 @@ class PetWindow(Gtk.ApplicationWindow):
     def _on_status_dialog_closed(self, _widget):
         self.status_dialog = None
 
+    def _focus_session(self, session_id):
+        """把会话 id 交给 Host 半身，失败时静默唤起 DSH 窗口。"""
+        if not isinstance(session_id, str) or not session_id:
+            return
+
+        def send():
+            try:
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{self.port}/dsh-pet-desktop/api/focus",
+                    data=json.dumps({"sessionId": session_id}).encode("utf-8"),
+                    headers={
+                        "content-type": "application/json",
+                        "x-dsh-pet-desktop": "1",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=3):
+                    pass
+            except Exception:
+                try:
+                    subprocess.run(
+                        [
+                            "gdbus", "call", "--session", "--dest", "dsh.web",
+                            "--object-path", "/dsh/web",
+                            "--method", "org.freedesktop.Application.Activate", "{}",
+                        ],
+                        timeout=3,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                except Exception:
+                    pass
+
+        threading.Thread(target=send, name="pet-focus", daemon=True).start()
+
+    def _update_bubble(self):
+        """按当前会话快照更新气泡，内容签名不变时不重建控件。"""
+        if self.bubble is None:
+            self.bubble = PetBubble(self, self.watcher)
+        self.bubble.update()
+
     # ---------- 轮询 ----------
 
     def _poll(self):
         # 干活状态与 DSH web 是否可达无关（数据来自本地会话文件），先处理，
         # 免得 DSH 重启期间宠物卡在旧姿态。
         self._switch_pose(self.watcher.pose)
+        self._update_bubble()
         # 启动后前 10 轮（约 30 秒）顺带自愈 EWMH 状态，之后 GTK 不再重写窗口属性
         if self._heal_rounds > 0:
             self._heal_rounds -= 1
@@ -1610,6 +1715,208 @@ class PetWindow(Gtk.ApplicationWindow):
         # 配置热重载（Node 半身改配置后，这里跟上）
         self._reload_config_if_changed()
         return GLib.SOURCE_CONTINUE
+
+
+class PetBubble(Gtk.Window):
+    """贴在宠物旁边的像素风会话状态气泡。"""
+
+    MAX_SESSIONS = 8
+    MAX_WIDTH = 560
+
+    def __init__(self, parent, watcher):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.parent = parent
+        self.watcher = watcher
+        self.expanded = False
+        self._signature = None
+        self._alerted_waiting_id = None
+        self._root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # 留出明确的空白点击区，任务行本身只负责跳转。
+        self._root.set_margin_top(4)
+        self._root.set_margin_bottom(4)
+
+        self.set_title("DSH 会话状态")
+        self.set_decorated(False)
+        self.set_app_paintable(True)
+        self.set_resizable(False)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_pager_hint(True)
+        self.set_focus_on_map(False)
+        self.set_keep_above(True)
+        self.set_type_hint(Gdk.WindowTypeHint.UTILITY)
+        visual = self.get_screen().get_rgba_visual()
+        if visual is not None:
+            self.set_visual(visual)
+        self.get_style_context().add_class("pet-bubble")
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.connect("button-press-event", self._on_background_press)
+        self.add(self._root)
+
+    def do_get_preferred_width(self):
+        # 不可缩放的窗口会优先采用自然宽度，必须在尺寸协商时限制上限。
+        minimum, natural = Gtk.Window.do_get_preferred_width(self)
+        return min(minimum, self.MAX_WIDTH), min(natural, self.MAX_WIDTH)
+
+    def _on_background_press(self, _widget, event):
+        if event.button != 1:
+            return False
+        self.expanded = not self.expanded
+        self._signature = None
+        self.update()
+        return True
+
+    def _on_session_press(self, widget, event, session_id):
+        if event.button == 1:
+            context = widget.get_style_context()
+            context.add_class("pet-bubble-clicked")
+            previous = getattr(widget, "_feedback_timer", None)
+            if previous is not None:
+                GLib.source_remove(previous)
+
+            def clear_feedback():
+                context.remove_class("pet-bubble-clicked")
+                widget._feedback_timer = None
+                return GLib.SOURCE_REMOVE
+
+            widget._feedback_timer = GLib.timeout_add(350, clear_feedback)
+            self.parent._focus_session(session_id)
+            return True
+        return False
+
+    def _clear(self):
+        for child in self._root.get_children():
+            self._root.remove(child)
+
+    def _label(self, text, style=None):
+        label = Gtk.Label(label=text)
+        label.set_xalign(0)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        if style:
+            label.get_style_context().add_class(style)
+        return label
+
+    def _pose_color(self, pose):
+        color = Gtk.Label()
+        color.set_size_request(10, -1)
+        color.get_style_context().add_class("pet-bubble-pose")
+        color.get_style_context().add_class(f"pet-bubble-{pose}")
+        return color
+
+    def _session_row(self, item):
+        row = Gtk.EventBox()
+        row.set_visible_window(True)
+        row.get_style_context().add_class("pet-bubble-row")
+        row.connect(
+            "button-press-event",
+            self._on_session_press,
+            str(item.get("id") or ""),
+        )
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        pose = item.get("pose", "idle")
+        header.pack_start(self._pose_color(pose), False, False, 0)
+        status = self._label(f"{POSE_LABELS.get(pose, pose)} ·")
+        age = self._label(f"· {human_age(item.get('age', 0))}")
+        # 状态和时长保留完整宽度；窗口超宽时只压缩中间的标题。
+        status.set_ellipsize(Pango.EllipsizeMode.NONE)
+        age.set_ellipsize(Pango.EllipsizeMode.NONE)
+        title = self._label(item.get("title") or "(未命名会话)")
+        header.pack_start(status, False, False, 0)
+        header.pack_start(title, True, True, 0)
+        header.pack_start(age, False, False, 0)
+        box.pack_start(header, False, False, 0)
+        if self.expanded and pose == "waiting":
+            for question in (item.get("questions") or [])[:2]:
+                text = question.get("question") or question.get("header") or "(问题)"
+                question_label = self._label(f"？ {text}", "pet-bubble-question")
+                box.pack_start(question_label, False, False, 0)
+                for option in question.get("options") or []:
+                    line = f"· {option.get('label') or ''}"
+                    if option.get("description"):
+                        line += f" — {option['description']}"
+                    box.pack_start(
+                        self._label(line, "pet-bubble-question"), False, False, 0
+                    )
+        row.add(box)
+        return row
+
+    def _render(self):
+        pose = self.watcher.pose
+        items = list(self.watcher.sessions or [])
+        signature = (
+            pose,
+            tuple(
+                (
+                    item.get("id"), item.get("pose"), int(item.get("age", 0) // 10),
+                    item.get("title"), json.dumps(item.get("questions") or [], sort_keys=True),
+                )
+                for item in items
+            ),
+        )
+        if signature == self._signature:
+            self.reposition()
+            return
+        self._signature = signature
+
+        waiting = next((item for item in items if item.get("pose") == "waiting"), None)
+        if pose == "waiting" and waiting is not None:
+            waiting_id = str(waiting.get("id") or "")
+            if waiting_id != self._alerted_waiting_id:
+                self.expanded = True
+                self._alerted_waiting_id = waiting_id
+        else:
+            self._alerted_waiting_id = None
+
+        self._clear()
+        if not items or pose == "idle" or not self.parent.get_visible():
+            self.hide()
+            return
+
+        for item in items[: self.MAX_SESSIONS]:
+            self._root.pack_start(self._session_row(item), False, False, 0)
+        remaining = len(items) - self.MAX_SESSIONS
+        if remaining > 0:
+            self._root.pack_start(
+                self._label(f"…还有 {remaining} 个会话"), False, False, 0
+            )
+
+        alert = pose == "waiting"
+        if alert:
+            self.get_style_context().add_class("pet-bubble-alert")
+        else:
+            self.get_style_context().remove_class("pet-bubble-alert")
+        self.show_all()
+        _minimum, natural = self._root.get_preferred_size()
+        self.resize(max(180, min(self.MAX_WIDTH, natural.width + 4)), natural.height + 4)
+        self.reposition()
+
+    def update(self):
+        self._render()
+
+    def reposition(self):
+        if not self.get_visible():
+            return
+        self._root.show_all()
+        width, height = self.get_size()
+        if width <= 1 or height <= 1:
+            _minimum, natural = self._root.get_preferred_size()
+            width = max(180, min(self.MAX_WIDTH, natural.width + 4))
+            height = max(30, natural.height + 4)
+            self.resize(width, height)
+        display = Gdk.Display.get_default()
+        try:
+            monitor = display.get_monitor_at_point(self.parent.pos_x, self.parent.pos_y)
+        except AttributeError:
+            monitor = display.get_primary_monitor() or display.get_monitor(0)
+        geometry = monitor.get_workarea()
+        fw, fh = self.parent.frame_size
+        right_x = self.parent.pos_x + fw + 8
+        left_x = self.parent.pos_x - width - 8
+        x = right_x if right_x + width <= geometry.x + geometry.width else left_x
+        x = max(geometry.x, min(x, geometry.x + geometry.width - width))
+        y = self.parent.pos_y + fh - height
+        y = max(geometry.y, min(y, geometry.y + geometry.height - height))
+        self.move(int(x), int(y))
 
 
 class StatusDialog(Gtk.Dialog):
@@ -1859,6 +2166,7 @@ class PetApp(Gtk.Application):
         self.window.timer_id = GLib.timeout_add(
             animation["durations"][0], self.window._tick
         )
+        GLib.timeout_add(LOOK_INTERVAL_MS, self.window._track_pointer)
         GLib.timeout_add(18_000, self.window._random_act)
         GLib.timeout_add_seconds(3, self.window._poll)
         # 父进程监视（--parent-pid）。DSH 被 SIGKILL 时上游的 dispose/exit 钩子

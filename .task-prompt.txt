@@ -1,0 +1,57 @@
+# 任务：气泡必须详细列出「任务名 + 状态」，点击即跳转
+
+你在这个目录里工作：`/home/wlaeg/文档/deepseek-harness/default-workspace/dsh-pet-desktop-linux/`
+
+## 背景
+
+桌面宠物插件的第一版已经实现（你看 `git diff` 就能看到未提交的改动）。用户看过第一版气泡后
+提出**明确的修改要求**，原话是：
+
+> 一定要做到详细写出任务名字和状态，点击直接跳转页面
+
+第一版的问题：**气泡折叠的时候只显示「工作中 · 3」这样一个数字，用户看不到是哪个任务在跑。**
+
+## 你要读的文件（按顺序）
+
+1. `SPEC-1.1-addendum.md` —— **本次任务的权威规格，逐条照做**
+2. `SPEC-1.1.md` —— 第一版规格（了解上下文，不要回退里面已验证的部分）
+3. `desktop/pet.py` —— 主实现，重点看 `class PetBubble`、`_render()`、`_session_row()`、`_track_pointer()`、`_focus_session()`
+4. `lib/index.js` —— Host 端 `/dsh-pet-desktop/api/focus` 路由
+5. `client.js` —— 前端轮询 focus 并调 `ctx.uiWorkspace.openSession(id)`
+
+## 核心要求（细节全在 SPEC-1.1-addendum.md，这里只列要点）
+
+1. **R1：气泡默认（未展开）就逐条列出每个会话**，每行必须同时有：
+   状态中文（`POSE_LABELS`）、**会话标题原文**、时长。
+   去掉 `set_max_width_chars(42)` 这种硬截断，`MAX_SESSIONS` 从 5 提到 8，
+   气泡宽度上限提到 560px，只有真的超宽才 `set_ellipsize(END)`。
+   只有被截掉时才追加 `…还有 N 个会话`。
+2. **R2：展开态改为显示 waiting 的问题与选项**（问题行 `？ xxx`，选项行 `· 标签 — 说明`）。
+   点空白处切换展开/收起、`expanded` 记忆、waiting 首次强制展开 + 黄框 `pet-bubble-alert` —— 都保留。
+3. **R3：点击任务行要有视觉反馈**（CSS class 短暂切换），且跳转做两层：
+   - 主：`POST /dsh-pet-desktop/api/focus`（第一版已有）
+   - 兜底：第一版失败时 `subprocess.run` 调
+     `gdbus call --session --dest dsh.web --object-path /dsh/web --method org.freedesktop.Application.Activate "{}"`
+     （超时 3 秒，失败静默）。
+   **两层都不许弹错误框。**
+4. **R5：不要回退**第一版已验证的部分（全局跟随、`_on_leave` 返回 False、拖动/双击/右键、
+   `_watch_parent` 顺序、透明配方、`_render()` 的签名去重）。
+
+## 硬性约束
+
+- **绝对不要启动或干扰用户的正式实例**（app-id 里含 `p19387`，端口 19387）。
+- 自查要用**隔离实例**：自己造 `--config` 到 `/tmp/` 下的新路径、自己的 `--app-id`、自己的 `DSH_HOME`。
+  测完把自己起的进程全部杀掉。
+  可参考 `SPEC-1.1.md` 里「验证」一节描述的假数据造法
+  （zstd 压缩的 `session.v4.jsonl.zstd`）。
+- 不要引入新的第三方依赖。
+- 改完必须自检：`python3 -m py_compile desktop/pet.py`、
+  `node --input-type=module --check < lib/index.js`、`node --input-type=module --check < client.js`。
+- 不要碰 `shop/`、`assets/`、`locale/`、`README*`（除非 SPEC 要求）。
+
+## 交付要求
+
+改完在 `REPORT-1.1b.md` 里写清楚：
+- 每个 SPEC 条目对应改了哪几行（文件:行号）
+- 你实际跑了什么验证命令、看到什么结果
+- 有哪些没做到或不确定的地方（**诚实写，别粉饰**）

@@ -622,6 +622,27 @@ window.__ModuleLoader__.load({
         return () => { try { style.remove() } catch { /* 已移除 */ } }
       }, 'dsh-pet-desktop-linux: styles')
 
+      ctx.effect(() => {
+        const poll = async () => {
+          try {
+            const response = await fetch(`${API}/focus`)
+            if (!response.ok) return
+            const body = await response.json()
+            if (typeof body?.sessionId !== 'string' || body.sessionId === '') return
+            try {
+              await ctx.uiWorkspace.openSession(body.sessionId)
+            } catch {
+              // DSH 界面切换失败时静默丢弃，本轮轮询仍需继续。
+            }
+          } catch {
+            // Host 未启动、路由暂不可用或响应不是 JSON 时静默忽略。
+          }
+        }
+        void poll()
+        const timer = setInterval(() => { void poll() }, 1000)
+        return () => clearInterval(timer)
+      }, 'dsh-pet-desktop-linux: focus polling')
+
       // order 13：上游 @michengai/dsh-codex-pet 占了 12，本插件紧跟其后。
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
@@ -632,6 +653,6 @@ window.__ModuleLoader__.load({
       }, props => h(Panel, { ...props, t })))
     }
 
-    return { inject: ['slots', 'locale'], apply }
+    return { inject: ['slots', 'locale', 'uiWorkspace'], apply }
   },
 })
