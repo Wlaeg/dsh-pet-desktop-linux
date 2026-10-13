@@ -204,7 +204,14 @@ pet process stops when you stop it or uninstall the bundle.
   scaling them with `InterpType.NEAREST`, which keeps the pixel-art edges sharp
 - Each work state has its own animation row, with per-frame durations (idle,
   working right/left, waving, jumping, failed, waiting, running, review)
-- The pet also looks toward the mouse cursor when it is nearby
+- The pet looks toward the cursor (16 directions) when it comes near, but only
+  within a 420px radius; beyond that it faces front again. Without the limit it
+  tracks every corner of the screen and feels like it is locked onto you. On a
+  multi-monitor setup it only follows within the pet's own monitor — otherwise a
+  pet on screen A would turn toward screen B, which is nonsense
+- Long session titles are shortened up front: measured in columns (CJK counts as
+  two), keeping both head and tail with `…` in between; the full title is on the
+  tooltip
 
 **Session bubble** — a pixel-art bubble beside the pet that lists every busy DSH
 session, one row each:
