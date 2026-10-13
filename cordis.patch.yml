@@ -1,0 +1,9 @@
+# dsh-pet-desktop-linux bundle patch.
+#
+# 一行 insert 即挂载 Host 半身（lib/index.js：依赖探测、进程管理、HTTP 路由、配置读写）；
+# 浏览器半身（client.js 的设置页面板）由 package.json 的 dsh.client 声明，
+# 并绑定在 name 为裸包名的这一行上（子路径行不会携带半身）。
+- insert:
+    - id: dsh-pet-desktop-linux
+      name: 'dsh-pet-desktop-linux'
+      config: {}

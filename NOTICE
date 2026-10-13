@@ -1,0 +1,46 @@
+dsh-pet-desktop-linux
+Copyright (c) 2026 Wlaeg
+
+本插件的原创代码采用 MIT 许可证，详见 LICENSE。
+
+宠物图集（pet artwork）
+----------------------
+本插件**不随包分发**任何宠物图集。桌面宠物运行时所需的精灵图（`spritesheet.webp`）
+由本插件在运行时从上游 npm 包 `@michengai/dsh-codex-pet` 读取，通过
+`require.resolve('@michengai/dsh-codex-pet/package.json')` 定位其包根，再读取
+`<root>/assets/codex/<pet>/spritesheet.webp`。上游包与本插件是依赖关系，不是复制关系：
+这些图集不包含在本仓库、本 npm 包或本插件的任何发行物中。
+
+上游包 `@michengai/dsh-codex-pet` 的 NOTICE 声明：`assets/codex` 下的宠物图集
+**来源于 OpenAI Codex**，并非该项目的原创素材；该项目的 Apache License 2.0
+不为这些第三方素材授予新的许可或商标权，相关权利归原权利人所有。
+
+插件图标 `assets/icon.png` 是本插件从上述图集中截取并缩放的单帧派生作品，
+因此同样来自 OpenAI Codex 素材，不在本插件的 MIT 授权范围内。
+
+本项目由社区维护，与 OpenAI、DeepSeek 均无隶属关系，不是 OpenAI 或 DeepSeek 的官方产品。
+
+---------------------------------------------------------------------------
+
+Original plugin code is licensed under the MIT License — see LICENSE.
+
+Pet artwork
+-----------
+This plugin does **not** bundle the pet artwork. At runtime it resolves the
+upstream npm package `@michengai/dsh-codex-pet` via
+`require.resolve('@michengai/dsh-codex-pet/package.json')` and reads the sprite
+sheets from `<root>/assets/codex/<pet>/spritesheet.webp`. The upstream package is
+a dependency, not a copy: no sprite sheet is included in this repository, in this
+npm package, or in any distribution of it.
+
+The upstream package's NOTICE states that the pet artwork under `assets/codex`
+originates from OpenAI Codex and is not original artwork of that project; its
+Apache License 2.0 grants no new rights to that third-party artwork or its
+trademarks, and those rights remain with their respective owners.
+
+The plugin icon `assets/icon.png` is a single-frame derivative cropped from that
+artwork, so it likewise originates from OpenAI Codex and is not covered by this
+plugin's MIT license.
+
+This is a community-maintained project. It is not affiliated with, and is not an
+official product of, OpenAI or DeepSeek.

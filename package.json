@@ -1,0 +1,49 @@
+{
+  "name": "dsh-pet-desktop-linux",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A transparent always-on-top desktop pet for DSH on Linux (X11 / XWayland), driven by the session state.",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "desktop",
+    "locale",
+    "cordis.patch.yml",
+    "assets",
+    "README.md",
+    "README.zh.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "dependencies": {
+    "@michengai/dsh-codex-pet": "^0.1.17"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "desktop-pet",
+    "linux",
+    "x11",
+    "gtk3"
+  ]
+}
