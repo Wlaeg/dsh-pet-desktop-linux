@@ -219,6 +219,13 @@ def build_parser():
         default=None,
         help="GDK 后端，默认 x11（Wayland 下无法做透明置顶窗口，仅供排查用）",
     )
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        default=None,
+        help="拉起本进程的 DSH 进程 pid；它消失时本程序自行退出（默认不监视）。"
+        "用来兜住 SIGKILL 这类不会触发上游清理钩子的情况，避免桌面上留下孤儿宠物",
+    )
     return parser
 
 
@@ -328,18 +335,28 @@ def normalize_config(raw, base=None):
     if isinstance(autostart, bool):
         data["autostart"] = autostart
 
-    position = raw.get("position")
-    if isinstance(position, dict):
-        try:
-            x = float(position.get("x"))
-            y = float(position.get("y"))
-        except (TypeError, ValueError):
-            pass
-        else:
-            data["position"] = {
-                "x": max(0.0, min(1.0, x)),
-                "y": max(0.0, min(1.0, y)),
-            }
+    # position 有三态，别把 null 和「没写这个键」混为一谈：
+    #   null     → 明确要求「放右下角」，必须原样保留 None（_place_from_config 认这个）
+    #   {x,y}    → 归一化坐标，夹进 0–1
+    #   缺键/垃圾 → 退回 base（保持上一份配置里的值）
+    # 曾经漏了 null 分支，导致 null 落回 base 的 {0.94, 0.7}：
+    # README 承诺的「null 表示右下角」永远走不到，而且用户设的 null 会在
+    # 第一次拖动窗口落盘时被悄悄改写成 {0.94, 0.7}。
+    if "position" in raw and raw["position"] is None:
+        data["position"] = None
+    else:
+        position = raw.get("position")
+        if isinstance(position, dict):
+            try:
+                x = float(position.get("x"))
+                y = float(position.get("y"))
+            except (TypeError, ValueError):
+                pass
+            else:
+                data["position"] = {
+                    "x": max(0.0, min(1.0, x)),
+                    "y": max(0.0, min(1.0, y)),
+                }
     return data
 
 
@@ -400,6 +417,14 @@ class ConfigStore:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
+            # 与 Node 半身对齐成 0600：配置里含用户选的宠物与窗口位置，
+            # 默认 umask 会落成 0644，多用户机器上别人可读。
+            # 必须在 os.replace 之前 chmod 临时文件（replace 后路径已定，改权限
+            # 与「先建后改」之间有窗口期）。
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                pass
             os.replace(tmp, self.path)
         except OSError as error:
             print(f"[pet-desktop] 配置写入失败 {self.path}: {error}", file=sys.stderr)
@@ -1505,15 +1530,27 @@ class PetWindow(Gtk.ApplicationWindow):
         self._adopt_config(self.store.data)
 
     def _adopt_config(self, config):
-        """同步配置：换宠物 / 改大小 / 改显隐（position 由拖动与摆放自行处理）。"""
+        """同步配置：换宠物 / 改大小 / 改显隐 / 挪位置。
+
+        position 也在比较之列：设置面板里没有位置控件，但用户手改配置文件
+        （或 Node 侧 API 写入）时应当立刻生效，否则「配置 → 窗口」单向不通。
+        本程序自己拖动窗口时走 _persist_position()，那条路径不会经过这里
+        （store.data 已同步，轮询比对不出差异），所以不会自打架。
+        """
         selected_changed = config.get("selected") != self.config.get("selected")
         size_changed = config.get("size") != self.config.get("size")
         hidden_changed = bool(config.get("hidden")) != bool(self.config.get("hidden"))
+        position_changed = config.get("position") != self.config.get("position")
         self.config = dict(config)
         if selected_changed:
             self.load_sprite(self.config.get("selected"))
         if size_changed:
             self._resize_to_config()
+        if position_changed:
+            # 放最后算：尺寸刚变过就用新尺寸折算归一化坐标。
+            # 正在拖动时不动它 —— 别把用户手里的窗口抢走。
+            if not self.dragging:
+                self._place_from_config()
         if hidden_changed:
             self.start_hidden = bool(config.get("hidden"))
             if self.start_hidden:
@@ -1776,6 +1813,31 @@ class PetApp(Gtk.Application):
         if self.window is not None:
             self.window.watcher.stop()
 
+    def _watch_parent(self):
+        """父进程（DSH）还在吗？不在就自己退出，别当孤儿窗口。
+
+        判定用 os.getppid() 而不是 os.kill(pid, 0)：父进程一死，本进程会被
+        init/reaper 收养，PPID 立刻变成 1（或 systemd --user），这个信号不受
+        pid 复用影响。
+
+        退出动作必须先于任何打印：DSH 被 SIGKILL 时，它持有的 stdout/stderr
+        管道写端还在我们这，但读端随进程一起消失，紧接着的 print 会抛
+        BrokenPipeError。若把 print 放在前面，异常会中断回调、quit() 永远
+        执行不到，宠物就成了真正的孤儿（实测复现过）。所以：
+        先 quit，打印再单独包一层 try。
+        """
+        if os.getppid() != _ARGS.parent_pid:
+            self.quit()
+            try:
+                print(
+                    f"[pet-desktop] 父进程 {_ARGS.parent_pid} 已退出，宠物随之关闭",
+                    flush=True,
+                )
+            except OSError:
+                pass  # 管道已断，日志不重要，退出才重要
+            return GLib.SOURCE_REMOVE
+        return GLib.SOURCE_CONTINUE
+
     def _spawn_window(self):
         self.window = PetWindow(self, self.store, self.pets, self.port)
         self.window._place_from_config()
@@ -1791,6 +1853,11 @@ class PetApp(Gtk.Application):
         )
         GLib.timeout_add(18_000, self.window._random_act)
         GLib.timeout_add_seconds(3, self.window._poll)
+        # 父进程监视（--parent-pid）。DSH 被 SIGKILL 时上游的 dispose/exit 钩子
+        # 都来不及跑，pet 就会变成孤儿窗口一直挂在桌面上；这里由 pet 自己发现
+        # 父进程没了就退出，SIGKILL 也拦得住。
+        if _ARGS.parent_pid:
+            GLib.timeout_add_seconds(2, self._watch_parent)
         # 会话扫描线程（干活状态）。第一次扫描在线程里立刻执行，约 1 秒后
         # _poll 就能读到 running；不放进 GTK 主循环是因为解压+JSON 解析
         # 会阻塞绘制（实测单次 0.8s）。

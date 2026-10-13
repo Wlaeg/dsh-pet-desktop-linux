@@ -11,6 +11,13 @@ input region, so clicks on the pet land on the pet.
 **Platform: Linux with X11 or XWayland only.** Windows, macOS and native Wayland
 (no XWayland) are not supported. See [Requirements](#requirements).
 
+![The pet floating transparently over the desktop](assets/screenshots/desktop-pet-linux-1.png)
+
+The window has no background and no border — the wallpaper shows through, and the
+pet stays on top of ordinary windows. The sprite follows your DSH sessions:
+
+![Idle, working, waiting, failed and review poses](assets/screenshots/desktop-pet-linux-2.png)
+
 > **Canonical copy:** this plugin is only published as
 > `dsh-pet-desktop-linux` (no scope) under the `Wlaeg` account. Any other
 > package with this name is not ours.
@@ -240,8 +247,9 @@ failure.)
   button, so a failed start is diagnosable from the UI
 
 The panel is bilingual (English / Chinese) through the client locale registry.
-It does **not** offer position dragging, autostart on login (that means an
-operating-system-level startup entry, not the in-DSH `autostart`), or running
+It does **not** offer a position input (drag the window itself — see above), it
+does **not** register a startup entry with your OS (that is an operating-system
+level thing, unrelated to the in-DSH `autostart`), and it does **not** run
 several pets at once.
 
 **Host HTTP routes** (prefix `/dsh-pet-desktop`), used by the Settings panel and
@@ -302,11 +310,14 @@ two never fight over each other's settings:
 | `position` | object \| null | Normalized position (`0`–`1`) of the window; `null` puts it in the bottom-right corner |
 | `autostart` | boolean | Whether DSH launches the pet window on boot (default `true`) |
 
-Everything reachable from the Settings panel and the right-click menu is written
-back to this file, so editing it by hand and using the UI are equivalent
-(`autostart` is only editable from the Settings panel — but the pet program
-itself recognizes the field and passes it through unchanged, so dragging the
-window, which rewrites the position, never drops it).
+Everything reachable from the Settings panel (`selected` / `size` / `hidden` /
+`autostart`) is written back to this file, so editing it by hand and using the
+UI are equivalent. **`position` is the exception**: it has no input control and
+is written by dragging the window — but a hand-edited `position` is picked up
+and applied within a few seconds (hot reload), no restart needed. `autostart` is
+only editable from the Settings panel — though the pet program itself recognizes
+the field and passes it through unchanged, so dragging the window, which rewrites
+the position, never drops it.
 
 ---
 
