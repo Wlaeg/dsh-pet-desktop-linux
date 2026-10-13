@@ -1,4 +1,23 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Runtime / logs
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Python
 __pycache__/
 *.pyc
+
+# Packed artifacts
+*.tgz
+*.tar.gz
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

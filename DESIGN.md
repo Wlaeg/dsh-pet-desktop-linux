@@ -40,22 +40,28 @@ Node 侧没有能做出「GTK3 透明置顶窗口」的现成方案（Electron �
 ### 3. Python 依赖削减到只剩 PyGObject + GTK3（已实测）
 
 原程序依赖 `Pillow`（解 webp）与 `pycairo`（绘制）。**两者都已证实可以去掉**：
-
 - 解码：`GdkPixbuf.PixbufLoader` 直接加载 webp 字节（`loader.write(raw); loader.close()`），
   实测得到 `1536x2288 alpha=True`，角落像素 RGBA=(0,0,0,0)。
 - 裁帧：`pixbuf.new_subpixbuf(col*192, row*208, 192, 208)`
 - 缩放：`pixbuf.scale_simple(w, h, GdkPixbuf.InterpType.NEAREST)`（保像素风锐利）
-- 绘制：`Gdk.cairo_set_source_pixbuf(cr, scaled, x, y)` + `cr.paint()`
-- 清屏：`cr.set_source_rgba(0,0,0,0)` + `cr.set_operator(1)`（OPERATOR_SOURCE）+ `cr.paint()`
+- 显示：`Gtk.Image.set_from_pixbuf(scaled)` —— Gtk.Image 自身按 pixbuf 的 alpha 合成，
+  无需手工清屏、无需 cairo 上下文。
 
-实测（m02668）在真实 GTK3 drawing area 上绘制成功，无异常。
-
-> ⚠️ **不要用 `from gi.repository import cairo`** —— 该命名空间**不提供**
+> ⚠️ **本文件早期版本（及 m02668 的实测）写的 `Gdk.cairo_set_source_pixbuf` 绘制路线
+> 已被证伪**：`Gtk.DrawingArea` 的 `draw` 信号要靠 `gi` 的 cairo 转换器把
+> `cairo.Context` 传给 Python 回调，而该转换器**内部仍会 `import cairo`**（pycairo）。
+> 缺 pycairo 时 `cr` 为 `None`，抛
+> `TypeError: Couldn't find foreign struct converter for 'cairo.Context'`。
+> 也就是说 **DrawingArea 路线隐含依赖 pycairo，`Gtk.Image` 路线才是真正的零 pycairo**。
+> 同理 **不要用 `from gi.repository import cairo`** —— 该命名空间不提供
 > `ImageSurface` / `OPERATOR_SOURCE` / `FORMAT_ARGB32`（实测 `AttributeError`）。
-> 走 `Gdk.cairo_set_source_pixbuf` 这条路，完全不需要 pycairo 的常量。
+>
+> 现实现见 `desktop/pet.py` 模块 docstring 第 8-18 行与 `SpriteSheet` 类（约 366 行起）。
 
 **最终 Python 依赖**：`python3` + `python-gobject`(gi) + `gtk3` typelib + `GdkPixbuf` typelib
 + 系统命令 `xdotool`（置顶/跨工作区）。
+（另：Python < 3.14 时读会话事件文件需要系统 `zstd` 命令——
+`compression.zstd` 是 3.14 才进标准库的。）
 
 ### 4. 安装形态与上架要求
 

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "description": "A transparent always-on-top desktop pet for DSH on Linux (X11 / XWayland), driven by the session state.",
+  "icon": "./assets/icon.png",
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -13,7 +14,7 @@
   "files": [
     "lib",
     "client.js",
-    "desktop",
+    "desktop/pet.py",
     "locale",
     "cordis.patch.yml",
     "assets",
@@ -28,10 +29,10 @@
     },
     "client": {
       "platform": "web",
+      "immediately": true,
       "inject": [
-        "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-locale"
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer"
       ]
     }
   },
