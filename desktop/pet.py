@@ -86,6 +86,17 @@ CELL_W, CELL_H = 192, 208
 
 SIZE_MIN, SIZE_MAX, SIZE_DEFAULT = 64, 224, 104
 LOOK_INTERVAL_MS = 120
+# 目光跟随的最大半径（屏幕像素）。光标超出这个距离就当作"没在看它"，
+# 宠物回到正面 idle，不再跟着指。原先没有上限，光标在屏幕任何角落都会被追着看，
+# 长时间下来像被锁住一样烦人。
+LOOK_MAX_DISTANCE = 420
+# 太近也不看：贴到脸上时角度会在相邻帧之间剧烈跳变，看起来像抽搐。
+LOOK_MIN_DISTANCE = 28
+# 气泡里会话标题显示的最大列宽（CJK 算 2 列）。超出则头尾保留、中间省略，
+# 免得一个长标题把气泡撑到半屏宽。加上状态/时长/分隔后整行约 44 列。
+TITLE_MAX_WIDTH = 22
+# 省略时留给尾部的列数（保留区分度更高的结尾）
+TITLE_TAIL_WIDTH = 6
 
 # 上游 @michengai/dsh-codex-pet 的内置宠物表（lib/index.js 的 BUILTINS）。
 # 显示名与顺序都照抄上游，保证与 DSH 页面里看到的对得上。
@@ -527,9 +538,14 @@ def scan_pets(sprites_dir):
     return pets
 
 
-def look_cell(dx, dy):
-    """光标相对宠物中心的方向 → v2 图集的 (row, col)；距离太近返回 None。"""
-    if math.hypot(dx, dy) < 28:
+def look_cell(dx, dy, max_distance=LOOK_MAX_DISTANCE):
+    """光标相对宠物中心的方向 → v2 图集的 (row, col)。
+
+    超出 ``max_distance``（光标没在关注宠物）或近到 ``LOOK_MIN_DISTANCE`` 以内
+    （角度会在相邻帧之间剧烈跳变）都返回 None，表示"不转头、回正面"。
+    """
+    distance = math.hypot(dx, dy)
+    if distance < LOOK_MIN_DISTANCE or distance > max_distance:
         return None
     index = round((math.atan2(dx, -dy) + math.tau) % math.tau / (math.pi / 8)) % 16
     return (9 + index // 8, index % 8)
@@ -598,6 +614,61 @@ def human_age(seconds):
     if seconds < 86400:
         return f"{seconds / 3600:.1f} 小时前"
     return f"{seconds / 86400:.1f} 天前"
+
+
+def display_width(text):
+    """文本的等宽显示宽度：CJK/全角算 2 列，其余算 1 列。
+
+    会话标题常常中英混排（"✨ 功能｜让Codex宠物脱离窗口限制"），按字符数截断会
+    让纯中文标题明显偏长、纯英文标题明显偏短，按列宽算才稳定。
+    """
+    width = 0
+    for char in text:
+        code = ord(char)
+        wide = (
+            0x1100 <= code <= 0x115F
+            or 0x2E80 <= code <= 0xA4CF
+            or 0xAC00 <= code <= 0xD7A3
+            or 0xF900 <= code <= 0xFAFF
+            or 0xFE30 <= code <= 0xFE6F
+            or 0xFF00 <= code <= 0xFF60
+            or 0xFFE0 <= code <= 0xFFE6
+            or 0x1F300 <= code <= 0x1FAFF
+        )
+        width += 2 if wide else 1
+    return width
+
+
+def shorten_title(text, limit=TITLE_MAX_WIDTH):
+    """把标题截到 ``limit`` 列以内，超出时保留头尾、中间用 … 省略。
+
+    保留尾部是因为标题常以区分度更高的部分结尾（"开机启动方案"、"与提示音"），
+    只砍尾巴会把不同会话显示成一模一样。
+    """
+    text = " ".join(str(text or "").split())
+    if not text:
+        return text
+    if display_width(text) <= limit:
+        return text
+    head_budget = limit - TITLE_TAIL_WIDTH - 1  # 1 列留给省略号
+    head, used = [], 0
+    for char in text:
+        step = display_width(char)
+        if used + step > head_budget:
+            break
+        head.append(char)
+        used += step
+    tail, used = [], 0
+    for char in reversed(text):
+        step = display_width(char)
+        if used + step > TITLE_TAIL_WIDTH:
+            break
+        tail.append(char)
+        used += step
+    tail.reverse()
+    if not head or not tail:
+        return "".join(head) + "…"
+    return "".join(head) + "…" + "".join(tail)
 
 
 def read_session_bytes(path):
@@ -1014,6 +1085,8 @@ class PetWindow(Gtk.ApplicationWindow):
         self.action = None  # 一次性动作（waving/jumping…），播完回到 base_pose
         self.frame = 0
         self.look = None
+        # 目光跟随半径：光标再远就不转头（见 LOOK_MAX_DISTANCE）
+        self.look_radius = LOOK_MAX_DISTANCE
         self.timer_id = None
         self.dragging = False
         self.drag_origin = (0, 0)
@@ -1269,7 +1342,12 @@ class PetWindow(Gtk.ApplicationWindow):
             self.bubble.reposition()
 
     def _track_pointer(self):
-        """按屏幕坐标追踪全局指针，不受指针是否在宠物窗口内影响。"""
+        """按屏幕坐标追踪全局指针，不受指针是否在宠物窗口内影响。
+
+        只在**宠物自己所在的显示器**内跟随：多屏时若让全局坐标生效，宠物在 A 屏、
+        光标在 B 屏也会朝那个方向转头，方向纯属错乱。同时受 ``look_radius`` 限制，
+        光标离得远就当作没在看它。
+        """
         if not self.get_visible():
             return GLib.SOURCE_CONTINUE
         if (
@@ -1284,18 +1362,37 @@ class PetWindow(Gtk.ApplicationWindow):
                 self._render_frame()
             return GLib.SOURCE_CONTINUE
         try:
-            seat = Gdk.Display.get_default().get_default_seat()
+            display = Gdk.Display.get_default()
+            seat = display.get_default_seat()
             _screen, px, py = seat.get_pointer().get_position()
         except Exception:
+            return GLib.SOURCE_CONTINUE
+        if not self._pointer_on_own_monitor(display, px, py):
+            if self.look is not None:
+                self.look = None
+                self._render_frame()
             return GLib.SOURCE_CONTINUE
         fw, fh = self.frame_size
         cx = self.pos_x + fw / 2
         cy = self.pos_y + fh / 2
-        cell = look_cell(px - cx, py - cy)
+        cell = look_cell(px - cx, py - cy, self.look_radius)
         if cell != self.look:
             self.look = cell
             self._render_frame()
         return GLib.SOURCE_CONTINUE
+
+    def _pointer_on_own_monitor(self, display, px, py):
+        """光标是否与宠物在同一块显示器上（单屏时恒为 True）。"""
+        try:
+            if display.get_n_monitors() <= 1:
+                return True
+            own = display.get_monitor_at_point(self.pos_x, self.pos_y)
+            other = display.get_monitor_at_point(px, py)
+            if own is None or other is None:
+                return True
+            return own.get_geometry().equal(other.get_geometry())
+        except Exception:
+            return True
 
     def _place_from_config(self):
         """按配置里的归一化 position（无则右下角）摆放。"""
@@ -1721,7 +1818,9 @@ class PetBubble(Gtk.Window):
     """贴在宠物旁边的像素风会话状态气泡。"""
 
     MAX_SESSIONS = 8
-    MAX_WIDTH = 560
+    # 窗口宽度上限。标题已在 shorten_title 里主动缩短，正常情况下远达不到这里；
+    # 留作 waiting 问题/选项过长时的兜底，别让它撑到半屏。
+    MAX_WIDTH = 420
 
     def __init__(self, parent, watcher):
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
@@ -1820,7 +1919,8 @@ class PetBubble(Gtk.Window):
         # 状态和时长保留完整宽度；窗口超宽时只压缩中间的标题。
         status.set_ellipsize(Pango.EllipsizeMode.NONE)
         age.set_ellipsize(Pango.EllipsizeMode.NONE)
-        title = self._label(item.get("title") or "(未命名会话)")
+        title = self._label(shorten_title(item.get("title") or "") or "(未命名会话)")
+        title.set_tooltip_text(item.get("title") or "")
         header.pack_start(status, False, False, 0)
         header.pack_start(title, True, True, 0)
         header.pack_start(age, False, False, 0)
