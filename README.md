@@ -206,6 +206,29 @@ pet process stops when you stop it or uninstall the bundle.
   working right/left, waving, jumping, failed, waiting, running, review)
 - The pet also looks toward the mouse cursor when it is nearby
 
+**Session bubble** — a pixel-art bubble beside the pet that lists every busy DSH
+session, one row each:
+
+- Every row reads `state · session title · age`, e.g.
+  `working · add gaze tracking and a bubble · 3 minutes ago`. The task name is
+  shown by default rather than collapsed into a bare count
+- Sorted by priority (waiting → running → failed → review), up to 8 rows; only
+  when more remain does it append `…and N more sessions`
+- Titles adapt to the available width (capped at 560px); the state and the age
+  are always complete, and only the title is ellipsized
+- **Clicking a row jumps DSH straight to that session**: the host side holds a
+  single-slot `POST /dsh-pet-desktop/api/focus`, which the browser half drains
+  every second and feeds to `uiWorkspace.openSession(id)`. When the host is
+  unreachable it falls back to
+  `gdbus … org.freedesktop.Application.Activate` to raise the DSH window. The
+  clicked row briefly changes colour as feedback
+- **Clicking empty bubble space** (4px above and below the rows) toggles
+  expanded/collapsed. Expanded, waiting sessions also show their questions and
+  options so you can see what is being asked
+- A new waiting session auto-expands the bubble once and outlines it in yellow;
+  if you collapsed it by hand it will not pop open again
+- The bubble hides itself when no session is busy
+
 **Work states** — five states, inferred from your DSH session event files
 (`$DSH_HOME/sessions/*/*/session.v4.jsonl.zstd`). No DSH API access — endpoints
 such as `/api/sessions` answer `401` to an outside process:

@@ -1,6 +1,6 @@
 {
   "name": "dsh-pet-desktop-linux",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "A transparent always-on-top desktop pet for DSH on Linux (X11 / XWayland), driven by the session state.",
   "icon": "./assets/icon.png",
