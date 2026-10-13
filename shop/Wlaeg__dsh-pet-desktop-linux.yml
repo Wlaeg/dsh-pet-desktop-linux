@@ -1,0 +1,7 @@
+url: https://github.com/Wlaeg/dsh-pet-desktop-linux
+name: Wlaeg/dsh-pet-desktop-linux
+category: fun
+description:
+  en: "A transparent always-on-top desktop pet for Linux that leaves the DSH window and follows session activity to switch between working, waiting, failed and review poses."
+  zh: "让宠物离开 DSH 窗口、以独立透明置顶窗口待在 Linux 桌面上，并跟随会话活动切换工作、等待、出错与完成姿态。"
+tarball: https://github.com/Wlaeg/dsh-pet-desktop-linux/releases/latest/download/dsh-pet-desktop-linux.tgz
