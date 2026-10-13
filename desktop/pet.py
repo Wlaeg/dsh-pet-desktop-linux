@@ -71,7 +71,15 @@ except ImportError:  # 老解释器退回 zstd CLI（见 read_session_bytes）
 # 「子进程启动后立即退出」却没有任何日志线索。
 APP_ID_DEFAULT = "com.wlaeg.dsh-pet-desktop-linux"
 DEFAULT_PORT = 19387
-DEFAULT_CONFIG_PATH = "~/.dsh/codex-pet-desktop/config.json"
+
+# 默认配置路径。跟随 DSH_HOME，与 Host 半身（lib/index.js 的 dshHome()）以及
+# 下面 SESSIONS_ROOT 的口径一致：用户设了 DSH_HOME 时，三者必须指向同一个家目录，
+# 否则「手动跑 pet.py」与「由插件拉起」会读写两份不同的配置。
+DEFAULT_CONFIG_PATH = os.path.join(
+    os.environ.get("DSH_HOME") or os.path.expanduser("~/.dsh"),
+    "codex-pet-desktop",
+    "config.json",
+)
 
 # 精灵图单元尺寸（宽 192、高 208，192:208 即 client.js 的 size*208/192 比例）
 CELL_W, CELL_H = 192, 208
