@@ -256,6 +256,7 @@ window.__ModuleLoader__.load({
         selected: str(config.selected),
         size,
         hidden: config.hidden === true,
+        autostart: config.autostart !== false,
         log: Array.isArray(logRaw) ? logRaw.map(line => String(line)) : [],
         assets: root.assets ?? null,
         dependencies: root.dependencies ?? null,
@@ -450,6 +451,11 @@ window.__ModuleLoader__.load({
         void patchConfig({ hidden: checked })
       }, [patchConfig])
 
+      const onAutostartToggle = useCallback(checked => {
+        setState(previous => (previous === undefined ? previous : { ...previous, autostart: checked }))
+        void patchConfig({ autostart: checked })
+      }, [patchConfig])
+
       const onPetChange = useCallback(value => {
         setState(previous => (previous === undefined ? previous : { ...previous, selected: value }))
         void patchConfig({ selected: value })
@@ -542,6 +548,15 @@ window.__ModuleLoader__.load({
           onChange: event => onHideToggle(event.target.checked),
         }))
 
+      const autostartRow = h(Row, { key: 'autostart', label: t('autostart'), hint: t('autostartHint') },
+        h('input', {
+          type: 'checkbox',
+          className: 'dpd_check',
+          checked: state.autostart,
+          disabled: locked,
+          onChange: event => onAutostartToggle(event.target.checked),
+        }))
+
       const missing = collectMissing(deps, t)
 
       // 依赖提示：缺东西才用红框；齐全给一句绿字；读不到就明说读不到。
@@ -588,7 +603,7 @@ window.__ModuleLoader__.load({
         h(Group, { title: t('status'), hint: '' }, [statusRow, pidRow, petRow]),
         h(Group, { title: t('controls'), hint: t('controlsHint') },
           h('div', { className: 'dpd_btns' }, controlButtons)),
-        h(Group, { title: t('pet'), hint: t('petHint') }, [petSelectRow, sizeRow, hiddenRow]),
+        h(Group, { title: t('pet'), hint: t('petHint') }, [petSelectRow, sizeRow, hiddenRow, autostartRow]),
         h(Group, { title: t('deps'), hint: '' }, depsBlock),
         logGroup)
     }

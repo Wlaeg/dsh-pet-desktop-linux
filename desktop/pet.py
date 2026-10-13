@@ -98,6 +98,10 @@ DEFAULT_CONFIG = {
     "size": SIZE_DEFAULT,
     "hidden": False,
     "position": {"x": 0.94, "y": 0.70},
+    # 本程序自己不用 autostart（那是 Node 半身决定「DSH 启动时要不要拉起本程序」），
+    # 但必须认识并原样保留它：拖动窗口会触发 _persist_position() 写回整份配置，
+    # 若这里把它当未知字段收掉，用户设置就会被悄悄抹掉。
+    "autostart": True,
 }
 
 # 与插件 client.js 的 ANIMATIONS 表逐帧一致
@@ -318,6 +322,11 @@ def normalize_config(raw, base=None):
     hidden = raw.get("hidden")
     if isinstance(hidden, bool):
         data["hidden"] = hidden
+
+    # autostart 归 Node 半身管，这里只做无损透传（见 DEFAULT_CONFIG 的注释）。
+    autostart = raw.get("autostart")
+    if isinstance(autostart, bool):
+        data["autostart"] = autostart
 
     position = raw.get("position")
     if isinstance(position, dict):

@@ -166,9 +166,9 @@ The browser half is declared by `dsh.client` and bound to the row whose `name` i
 the bare package name — subpath rows do not carry a browser half.
 
 After installing, reload the DSH Web UI page so the browser half registers its
-Settings panel. Nothing else is required: the pet program is started from the
-Settings panel (or by pressing **Start** there) and stops when you stop it or
-uninstall the bundle.
+Settings panel. Nothing else is required: **DSH starts the pet window by itself**
+as soon as it boots (`autostart` defaults to `true` — see “Configuration”). The
+pet process stops when you stop it or uninstall the bundle.
 
 > Replacing an already-installed copy (for example after editing the source)
 > needs a restart of the DSH host process — the running process keeps the JS
@@ -232,14 +232,17 @@ failure.)
 - **Start** / **Stop** / **Restart** buttons (restart is stop, wait for exit, start)
 - Pet picker, whose options come from `GET /api/state`
 - Size slider (64–224) and a **hide the pet on the desktop** switch
+- A **start with DSH** switch — turn it off and DSH will not launch the pet
+  window on boot; you then use the **Start** button instead
 - Missing-dependency notice: shown only when something is missing, listing the
   missing items together with the install command for them
 - A collapsible log view of the recent lines from `GET /api/state`, with a refresh
   button, so a failed start is diagnosable from the UI
 
 The panel is bilingual (English / Chinese) through the client locale registry.
-It does **not** offer position dragging, autostart on login, or running several
-pets at once.
+It does **not** offer position dragging, autostart on login (that means an
+operating-system-level startup entry, not the in-DSH `autostart`), or running
+several pets at once.
 
 **Host HTTP routes** (prefix `/dsh-pet-desktop`), used by the Settings panel and
 usable by local scripts:
@@ -259,9 +262,16 @@ stop a real process.
 
 If the config file does not exist yet, the defaults are used in memory
 (`selected: "codex"`, `size: 104`, `hidden: false`,
-`position: {x: 0.94, y: 0.70}`); the file itself is only created on the first
-write, i.e. when you change a setting. Config writes are atomic (temp file +
-rename) and serialized, so a reader never sees a half-written file.
+`position: {x: 0.94, y: 0.70}`, `autostart: true`); the file itself is only
+created on the first write, i.e. when you change a setting. Config writes are
+atomic (temp file + rename) and serialized, so a reader never sees a
+half-written file.
+
+> `autostart` is read by the Host half when DSH boots. After deciding to launch
+> the pet it waits **1.5 seconds** before spawning, so it does not compete with
+> DSH's own startup. A failure there never affects DSH itself; the reason shows
+> up in the Settings panel log (most often a missing GTK3 / GdkPixbuf /
+> `xdotool`).
 
 ---
 
@@ -279,7 +289,8 @@ two never fight over each other's settings:
   "selected": "codex",
   "size": 104,
   "hidden": false,
-  "position": { "x": 0.94, "y": 0.70 }
+  "position": { "x": 0.94, "y": 0.70 },
+  "autostart": true
 }
 ```
 
@@ -289,9 +300,13 @@ two never fight over each other's settings:
 | `size` | number | Pet width in pixels, clamped to 64–224 |
 | `hidden` | boolean | Whether the desktop window is hidden at startup |
 | `position` | object \| null | Normalized position (`0`–`1`) of the window; `null` puts it in the bottom-right corner |
+| `autostart` | boolean | Whether DSH launches the pet window on boot (default `true`) |
 
 Everything reachable from the Settings panel and the right-click menu is written
-back to this file, so editing it by hand and using the UI are equivalent.
+back to this file, so editing it by hand and using the UI are equivalent
+(`autostart` is only editable from the Settings panel — but the pet program
+itself recognizes the field and passes it through unchanged, so dragging the
+window, which rewrites the position, never drops it).
 
 ---
 

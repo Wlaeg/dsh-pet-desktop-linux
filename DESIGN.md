@@ -140,13 +140,19 @@ python3 desktop/pet.py --assets-root <上游包根> --config <配置文件路径
   "selected": "codex",
   "size": 104,
   "hidden": false,
-  "position": {"x": 0.94, "y": 0.70}
+  "position": {"x": 0.94, "y": 0.70},
+  "autostart": true
 }
 ```
 - `selected`：宠物 id，取自 `<assets-root>/assets/codex/` 下的目录名
 - `size`：64–224（与上游一致的约束）
 - `hidden`：桌面窗口是否隐藏
 - `position`：归一化坐标 0–1
+- `autostart`：DSH 启动时是否自动拉起宠物进程（默认 `true`）。**只有 Node 半身消费它**，
+  但 Python 半身必须认识并原样透传 —— 拖动窗口会触发整份配置回写，白名单收敛会把它抹掉。
+
+> 契约例外说明：`autostart` 是为满足「装完这一个插件就能直接用」而追加的字段，
+> 属于对最初冻结契约的**有意扩展**（见 README「配置」一节）。
 
 ## 写入范围划分（避免冲突）
 

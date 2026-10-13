@@ -34,6 +34,8 @@
   "sizeUnit": "px",
   "hidden": "在桌面上隐藏",
   "hiddenHint": "隐藏后进程继续运行，只是窗口不显示。",
+  "autostart": "随 DSH 自动启动",
+  "autostartHint": "DSH 启动后自动拉起桌面宠物；关闭后只能用上面的「启动」按钮手动开。",
   "deps": "运行依赖",
   "depsOk": "依赖齐全，可以启动。",
   "depsMissing": "缺少 {n} 项，桌面宠物暂时无法启动。",

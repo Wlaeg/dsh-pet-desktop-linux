@@ -34,6 +34,8 @@
   "sizeUnit": "px",
   "hidden": "Hide on the desktop",
   "hiddenHint": "The process keeps running; only the window is hidden.",
+  "autostart": "Start with DSH",
+  "autostartHint": "Launch the desktop pet automatically when DSH starts; when off, use the Start button above.",
   "deps": "Runtime dependencies",
   "depsOk": "All dependencies present; ready to start.",
   "depsMissing": "{n} item(s) missing, so the desktop pet cannot start yet.",
